@@ -134,16 +134,11 @@ class LaunchRequestHandler(AbstractRequestHandler):
     def handle(self, handler_input):
         # type: (HandlerInput) -> Response
         logger.info("In LaunchRequestHandler")
-        date = str(handler_input.request_envelope.request.timestamp)
-        newtime = date[:-6]
         userID = handler_input.request_envelope.session.user.user_id
-        helpfull = duringbreak(userID,newtime)
-        first_time = helpfull.get("first_time")
-        cookies_earned = str(helpfull.get( "cookies_earned"))
-        number_of_reindeer = str(helpfull.get( "reindeer"))
-        elves =  str(helpfull.get( "elves"))
-
-        if first_time == True:
+        lasttime = get_lasttime(userID)
+        
+        print("This is lasttime {}".format(lasttime))
+        if lasttime == False:
             speech = ("Welcome to Santa's Workshop! Santa needs help "
                      "running his shop. He has one elf who makes 1 toy per minute and"
                      "1 reindeer that deliverys 5 toys every ten minutes. Once a toy is deliverd you will "
@@ -151,12 +146,19 @@ class LaunchRequestHandler(AbstractRequestHandler):
                      "costs 50 cookies, and one reindeer costs 75 cookies. "
                      "Help santa deliver as many toys as you can.")
             reprompt = speech
-        elif first_time == False:
+        else:
+            date = str(handler_input.request_envelope.request.timestamp)
+            newtime = date[:-6]
+            helpfull = duringbreak(userID, newtime)
+            cookies_earned = str(helpfull.get( "cookies_earned"))
+            number_of_reindeer = str(helpfull.get( "reindeer"))
+            elves =  str(helpfull.get( "elves")) 
             speech = ("Welcome to Santa's Workshop! Your elves and reindeer have earned "
                       + cookies_earned + " cookies while you were away. You have "
                       + elves + " elves and " + number_of_reindeer + " reindeer. "
                       "What would you like to do?")
-            reprompt = speech
+            reprompt = speech    
+
 
         return handler_input.response_builder.speak(speech).ask(
             reprompt).response
@@ -350,6 +352,39 @@ class BuyHandler(AbstractRequestHandler):
                     },
                     token="correlationToken")
             ).response
+
+class CancelSubscriptionHandler(AbstractRequestHandler):
+    """
+    Following handler demonstrates how Skills would receive Cancel requests
+    from customers and then trigger a cancel request to Alexa
+    User says: Alexa, ask premium facts to cancel <product name>
+    """
+    def can_handle(self, handler_input):
+        # type: (HandlerInput) -> bool
+        return is_intent_name("CancelSubscriptionIntent")(handler_input)
+
+    def handle(self, handler_input):
+        # type: (HandlerInput) -> Response
+        logger.info("In CancelSubscriptionHandler")
+
+        in_skill_response = in_skill_product_response(handler_input)
+        if in_skill_response:
+            
+
+            product_category = "1000_cookies"
+
+            product = [l for l in in_skill_response.in_skill_products
+                        if l.reference_name == product_category]
+            return handler_input.response_builder.add_directive(
+                SendRequestDirective(
+                    name="Cancel",
+                    payload={
+                        "InSkillProduct": {
+                            "productId": "amzn1.adg.product.5e26ee4c-c73a-4820-ae2f-03d75f313e76"
+                        }
+                    },
+                    token="correlationToken")
+            ).response            
 
 class BuyResponseHandler(AbstractRequestHandler):
     """This handles the Connections.Response event after a buy occurs."""
@@ -578,16 +613,7 @@ def get_slot_values(filled_slots):
 
 def duringbreak(userID,newtime):
     lasttime = get_lasttime(userID)
-    if lasttime == None:
-        lasttime = newtime
-        elves = 1
-        total_toys = 0
-        number_of_reindeer = 1
-        total_cookies = 0
-        reindeer_round_trips = 0
-        first_time = True
-    else:
-        first_time = False
+    if lasttime != False:
         total_mintes_gone = gettimeinbetween(lasttime,newtime)
         elves = get_stats(userID).get("elves")
         previous_toys = get_stats(userID).get("toys")
@@ -615,13 +641,24 @@ def duringbreak(userID,newtime):
             reindeer_round_trips -= 1
         total_cookies = previous_cookies + cookies_earned
         total_toys = needs_toy_delivery
+    elif lasttime == False:
+        lasttime = newtime
+        elves = 1
+        total_toys = 0
+        number_of_reindeer = 1
+        total_cookies = 0
+        reindeer_round_trips = 0
+        cookies_earned = 0
+
+
 
     stats = {"elves": elves, "toys": total_toys, "reindeer": number_of_reindeer, "cookies": int(total_cookies), "reindeerroundtrips": reindeer_round_trips}
     add_to_table(userID, stats, newtime)
 
-    helpful= {"first_time": first_time, "cookies_earned": cookies_earned, "reindeer":number_of_reindeer, "elves": elves}
+    helpfull = {"cookies_earned": cookies_earned, "reindeer":number_of_reindeer, "elves": elves}
 
-    return helpful
+    return helpfull
+
 
 def add_product(slot_values, userID, newtime, handler_input):
     lasttime = get_lasttime(userID)
@@ -736,7 +773,7 @@ def get_lasttime(userID):
         )
         lasttime = response['Item']['lasttime']
     except:
-        lasttime = None
+        lasttime = False
     
     return lasttime
 
@@ -786,6 +823,7 @@ sb.add_request_handler(UpsellResponseHandler())
 sb.add_request_handler(ShoppingHandler())
 sb.add_request_handler(ProductDetailHandler())
 sb.add_request_handler(BuyHandler())
+sb.add_request_handler(CancelSubscriptionHandler())
 
 sb.add_exception_handler(CatchAllExceptionHandler())
 sb.add_global_request_interceptor(RequestLogger())
