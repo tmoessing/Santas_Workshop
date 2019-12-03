@@ -1,4 +1,3 @@
-  
 # -*- coding: utf-8 -*-
 import random
 import six
@@ -141,8 +140,8 @@ class LaunchRequestHandler(AbstractRequestHandler):
         if lasttime == False:
             speech = ("Welcome to Santa's Workshop! Santa needs help "
                      "running his shop. He has one elf who makes 1 toy per minute and"
-                     "1 reindeer that deliverys 5 toys every ten minutes. Once a toy is deliverd you will "
-                     "recieve 1 cookie, you can use these cookies to get more elfs and reindeers. One elf "
+                     "1 reindeer that deliverys 5 toys every ten minutes. Once a toy is delivered you will "
+                     "recieve 1 cookie, you can use these cookies to get more elves and reindeers. One elf "
                      "costs 50 cookies, and one reindeer costs 75 cookies. "
                      "Help santa deliver as many toys as you can.")
             reprompt = speech
@@ -154,7 +153,7 @@ class LaunchRequestHandler(AbstractRequestHandler):
             number_of_reindeer = str(helpfull.get( "reindeer"))
             elves =  str(helpfull.get( "elves")) 
             speech = ("Welcome to Santa's Workshop! Your elves and reindeer have earned "
-                      + cookies_earned + " cookies while you were away. You have "
+                      "a lot of cookies while you were away. You have "
                       + elves + " elves and " + number_of_reindeer + " reindeer. "
                       "What would you like to do?")
             reprompt = speech    
@@ -199,7 +198,7 @@ class CompletedbuyelfsreindeerIntent(AbstractRequestHandler):
         number = slot_values["number"]["resolved"]
 
         if bankrupt == True:
-            speech = ("Sorry you can't buy " + number + " " + product + ", as you don't have enough cookies")
+            speech = ("Sorry you can't buy " + number + " " + product + ", as you don't have enough cookies. Would you like to do anything else?")
             reprompt = ("What would you like to do next?")
         else:
             speech = ("Adding {} {} , What would you like to do next?".format(number, product))
@@ -244,7 +243,7 @@ class CompletedstatsIntent(AbstractRequestHandler):
 
         returned_stat = str(int(stats.get(wanted_stat)))
 
-        speech = ("You have " + returned_stat + " " + wanted_stat)
+        speech = ("You have " + returned_stat + " " + wanted_stat + ", What would you like to do next?")
         reprompt = ("What would you like to do next?")
 
         return handler_input.response_builder.speak(speech).ask(
@@ -369,22 +368,76 @@ class CancelSubscriptionHandler(AbstractRequestHandler):
 
         in_skill_response = in_skill_product_response(handler_input)
         if in_skill_response:
-            
-
             product_category = "1000_cookies"
 
+            # No entity resolution match
+
             product = [l for l in in_skill_response.in_skill_products
-                        if l.reference_name == product_category]
+                       if l.reference_name == product_category]
             return handler_input.response_builder.add_directive(
                 SendRequestDirective(
                     name="Cancel",
                     payload={
                         "InSkillProduct": {
-                            "productId": "amzn1.adg.product.5e26ee4c-c73a-4820-ae2f-03d75f313e76"
+                            "productId": product[0].product_id
                         }
                     },
                     token="correlationToken")
-            ).response            
+            ).response
+
+class CancelResponseHandler(AbstractRequestHandler):
+    """This handles the Connections.Response event after a cancel occurs."""
+    def can_handle(self, handler_input):
+        # type: (HandlerInput) -> bool
+        return (is_request_type("Connections.Response")(handler_input) and
+                handler_input.request_envelope.request.name == "Cancel")
+
+    def handle(self, handler_input):
+        # type: (HandlerInput) -> Response
+        logger.info("In CancelResponseHandler")
+        in_skill_response = in_skill_product_response(handler_input)
+        product_id = handler_input.request_envelope.request.payload.get(
+            "productId")
+
+        if in_skill_response:
+            product = [l for l in in_skill_response.in_skill_products
+                       if l.product_id == product_id]
+            logger.info("Product = {}".format(str(product)))
+            if handler_input.request_envelope.request.status.code == "200":
+                speech = None
+                reprompt = None
+                purchase_result = handler_input.request_envelope.request.payload.get(
+                        "purchaseResult")
+                purchasable = product[0].purchasable
+                if purchase_result == PurchaseResult.ACCEPTED.value:
+                    date = str(handler_input.request_envelope.request.timestamp)
+                    newtime = date[:-6]
+                    userID = handler_input.request_envelope.session.user.user_id
+                    subtract_1000_cookies(userID, newtime)
+                    speech = ("You have successfully cancelled your 1000 cookies. {}".format(
+                        get_random_yes_no_question()))
+                    reprompt = get_random_yes_no_question()
+
+                if purchase_result == PurchaseResult.DECLINED.value:
+                    if purchasable == PurchasableState.PURCHASABLE:
+                        speech = ("You don't currently have one thousand cookies "
+                              ". {}".format(
+                            get_random_yes_no_question()))
+                    else:
+                        speech = get_random_yes_no_question()
+                    reprompt = get_random_yes_no_question()
+
+                return handler_input.response_builder.speak(speech).ask(
+                    reprompt).response
+            else:
+                logger.log("Connections.Response indicated failure. "
+                           "Error: {}".format(
+                    handler_input.request_envelope.request.status.message))
+
+                return handler_input.response_builder.speak(
+                        "There was an error handling your cancellation "
+                        "request. Please try again or contact us for "
+                        "help").response            
 
 class BuyResponseHandler(AbstractRequestHandler):
     """This handles the Connections.Response event after a buy occurs."""
@@ -397,31 +450,25 @@ class BuyResponseHandler(AbstractRequestHandler):
         # type: (HandlerInput) -> Response
         logger.info("In BuyResponseHandler")
         in_skill_response = in_skill_product_response(handler_input)
-        product_id = "amzn1.adg.product.5e26ee4c-c73a-4820-ae2f-03d75f313e76"
+        product_id = "amzn1.adg.product.317b8843-49ae-4c40-8f3e-353eb9a356e3"
 
         if in_skill_response:
             product = [l for l in in_skill_response.in_skill_products
                        if l.product_id == product_id]
             logger.info("Product = {}".format(str(product)))
             if handler_input.request_envelope.request.status.code == "200":
-                date = str(handler_input.request_envelope.request.timestamp)
-                newtime = date[:-6]
-                userID = handler_input.request_envelope.session.user.user_id
-                add_1000_cookies(userID,newtime)
-                speech = ("You have just bought 1000 cookies Adding them to your account now! "
-                            "You can now spend these cookies on elf or reindeer. Try it now say 'Buy one elf' ")
-                reprompt = get_random_yes_no_question()
-                return handler_input.response_builder.speak(speech).ask(reprompt).response
+                speech = None
+                reprompt = None
                 purchase_result = handler_input.request_envelope.request.payload.get(
                     "purchaseResult")
                 if purchase_result == PurchaseResult.ACCEPTED.value:
-                    if product[0].reference_name != "1000_cookies":
+                    if product[0].reference_name == "1000_cookies":
                         date = str(handler_input.request_envelope.request.timestamp)
                         newtime = date[:-6]
                         userID = handler_input.request_envelope.session.user.user_id
                         add_1000_cookies(userID,newtime)
                         speech = ("You have just bought 1000 cookies Adding them to your account now! "
-                                  "You can now spend these cookies on elf or reindeer. Try it now say 'Buy one elf' ")
+                                  "You can now spend these cookies on elf or reindeer. Try it now say, 'Buy one elf' ")
                         reprompt = get_random_yes_no_question()
                 elif purchase_result in (
                         PurchaseResult.DECLINED.value,
@@ -639,6 +686,7 @@ def duringbreak(userID,newtime):
                 toys_deliverred += possible_toys_this_trip
                 needs_toy_delivery -= possible_toys_this_trip
             reindeer_round_trips -= 1
+        print(cookies_earned)
         total_cookies = previous_cookies + cookies_earned
         total_toys = needs_toy_delivery
     elif lasttime == False:
@@ -651,11 +699,11 @@ def duringbreak(userID,newtime):
         cookies_earned = 0
 
 
-
     stats = {"elves": elves, "toys": total_toys, "reindeer": number_of_reindeer, "cookies": int(total_cookies), "reindeerroundtrips": reindeer_round_trips}
     add_to_table(userID, stats, newtime)
 
     helpfull = {"cookies_earned": cookies_earned, "reindeer":number_of_reindeer, "elves": elves}
+    print("helpfull gives this {}".format(cookies_earned))
 
     return helpfull
 
@@ -764,6 +812,40 @@ def add_1000_cookies(userID,newtime):
     add_to_table(userID, stats, newtime)
     return
 
+def subtract_1000_cookies(userID,newtime):
+    lasttime = get_lasttime(userID)
+    total_mintes_gone = gettimeinbetween(lasttime,newtime)
+    number_of_reindeer = get_stats(userID).get("reindeer")
+    elves = get_stats(userID).get("elves")
+    previous_toys = get_stats(userID).get("toys")
+    made_toys = decimal.Decimal(total_mintes_gone)*elves
+    needs_toy_delivery = previous_toys + made_toys
+    reindeer_trip_time = 10
+    reindeer_capacity = 5
+    cookie_reward_for_toy = 1
+    number_of_reindeer = get_stats(userID).get("reindeer")
+    previous_cookies = get_stats(userID).get("cookies")
+    cookies_earned = 0
+    toys_deliverred = 0
+    previous_reindeer_round_trips = get_stats(userID).get("reindeerroundtrips")
+    reindeer_round_trips = (decimal.Decimal(total_mintes_gone)/reindeer_trip_time) + previous_reindeer_round_trips
+    while reindeer_round_trips >= 1 and needs_toy_delivery >= 5:
+        possible_toys_this_trip = number_of_reindeer*reindeer_capacity
+        if possible_toys_this_trip > needs_toy_delivery:
+            cookies_earned += (needs_toy_delivery*cookie_reward_for_toy)
+            toys_deliverred += needs_toy_delivery
+            needs_toy_delivery = 0
+        else:
+            cookies_earned += (possible_toys_this_trip*cookie_reward_for_toy)
+            toys_deliverred += possible_toys_this_trip
+            needs_toy_delivery -= possible_toys_this_trip
+        reindeer_round_trips -= 1
+    total_cookies = previous_cookies + cookies_earned - 1000
+    total_toys = needs_toy_delivery
+    stats = {"elves": elves, "toys": total_toys, "reindeer": number_of_reindeer, "cookies": total_cookies, "reindeerroundtrips": reindeer_round_trips }
+    add_to_table(userID, stats, newtime)
+    return    
+
 def get_lasttime(userID):
     try:
         response = table.get_item(
@@ -815,18 +897,4 @@ sb.add_request_handler(SessionEndedHandler())
 sb.add_request_handler(InProgressbuyelfsreindeerIntent())
 sb.add_request_handler(CompletedbuyelfsreindeerIntent())
 sb.add_request_handler(InProgressstatsIntent())
-sb.add_request_handler(CompletedstatsIntent())
-
-
-sb.add_request_handler(BuyResponseHandler())
-sb.add_request_handler(UpsellResponseHandler())
-sb.add_request_handler(ShoppingHandler())
-sb.add_request_handler(ProductDetailHandler())
-sb.add_request_handler(BuyHandler())
-sb.add_request_handler(CancelSubscriptionHandler())
-
-sb.add_exception_handler(CatchAllExceptionHandler())
-sb.add_global_request_interceptor(RequestLogger())
-sb.add_global_response_interceptor(ResponseLogger())
-
-lambda_handler = sb.lambda_handler()
+sb
